@@ -1,7 +1,7 @@
 <h1 align="center">🏠 Ho Chi Minh City House Price Prediction</h1>
 
 <p align="center">
-  <b>Predicting residential property prices in HCMC with XGBoost (2026)</b>
+  <b>Predicting residential property prices in Ho Chi Minh City from real listings with XGBoost</b>
 </p>
 
 <p align="center">
@@ -9,89 +9,114 @@
   <img src="https://img.shields.io/badge/XGBoost-189FDD?style=flat-square" alt="XGBoost"/>
   <img src="https://img.shields.io/badge/scikit--learn-F7931E?style=flat-square&logo=scikitlearn&logoColor=white" alt="scikit-learn"/>
   <img src="https://img.shields.io/badge/Pandas-150458?style=flat-square&logo=pandas&logoColor=white" alt="Pandas"/>
+  <img src="https://img.shields.io/badge/R²-0.80-2E8B57?style=flat-square" alt="R2 0.80"/>
 </p>
 
 ---
 
 ## 📌 Overview
 
-House prices in Ho Chi Minh City depend on location, size, infrastructure and market trends, which makes manual valuation slow and subjective. This project builds a regression model on **real listings collected from [Rever.vn](https://rever.vn/s/ho-chi-minh)** to support automated price estimation and investment screening.
+House prices in Ho Chi Minh City depend on location, size and layout, which makes manual valuation slow and subjective. This project builds a regression model on **real listings collected from [Rever.vn](https://rever.vn/s/ho-chi-minh)** to estimate the price of a house from its location and basic characteristics.
 
 ## 📊 Results
 
-| Metric | Linear Regression (baseline) | **XGBoost** | Improvement |
-|---|---|---|---|
-| R² | 0.503 | **0.803** | +30 pts |
-| MAE (billion VND) | 2.778 | **1.011** | −63.6% |
-| RMSE (billion VND) | 4.940 | **1.453** | −70.6% |
-| MAPE | – | **17.0%** | – |
+**XGBoost Regressor** (test set, 80/20 split):
 
-XGBoost explains about 80% of price variance, with a mean absolute error of about 1 billion VND. Most of the gain over the baseline comes from capturing non-linear effects and feature interactions (district × area × property type), helped by log-transforming the price and filtering outliers.
+| Metric | Value |
+|---|---|
+| R² | **0.803** |
+| 5-fold CV R² | **0.800 ± 0.007** |
+| MAE | **1.01** billion VND |
+| RMSE | **1.45** billion VND |
+| MAPE | **17.0%** |
+
+The 5-fold cross-validation scores (0.791 – 0.809) are very close to the test score, so the result is stable and does not depend on one lucky split.
+
+**Baseline: Linear Regression** (district one-hot + bedrooms, bathrooms, area): R² = 0.503, MAE = 2.78, RMSE = 4.94 billion VND.
+
+> The baseline was trained without the outlier filter and without street / ward, so it is a reference point rather than a strictly like-for-like comparison.
+
+### Feature importance (XGBoost)
+
+| Feature | Importance |
+|---|---|
+| Bathrooms | 0.291 |
+| District | 0.190 |
+| Bedrooms | 0.186 |
+| Area (m²) | 0.179 |
+| Ward | 0.081 |
+| Street | 0.072 |
+
+Size-related features (bathrooms, bedrooms, area) together explain most of the prediction, followed by district.
 
 ## 🗂️ Dataset
 
-- **Source:** crawled from Rever.vn (townhouses, apartments and villas in HCMC)
-- **Size:** 9,481 listings → **8,821** after outlier removal (IQR on log-price, 660 rows / 8.09% dropped)
-
-| Feature | Description |
+| Stage | Rows |
 |---|---|
-| `street`, `ward`, `district` | Location |
-| `price` | Total price (billion VND), **target** |
-| `price(m2)` | Price per m² |
-| `area(m2)` | Floor area |
-| `bedroom`, `bathroom` | Number of rooms |
-| `direction` | House orientation |
-| `discount` | Discount, if any |
-| `date_update` | Last update date of the listing |
-| `code_housing` | Listing ID |
-| `description` | Free-text description |
+| Raw listings crawled from Rever.vn (townhouses, apartments, villas) | **9,482** |
+| After cleaning (price parsing, missing values dropped) | **8,154** |
+| After removing price outliers (IQR, k = 1.5; 660 rows, 8.09%) | **7,494** |
 
-> Data is used for research and educational purposes only.
+**Raw columns:** street, ward, district, listing code, update date, price, price per m², bedrooms, bathrooms, area, direction, description.
+
+**Features used by the model:** `street`, `ward`, `district`, `bedroom`, `bathroom`, `area(m2)`. **Target:** `price` (billion VND).
+
+> `price(m2)` is **not** used as a feature, because it is derived from the target (price ÷ area) and would leak the answer.
+
+Data is used for research and educational purposes only.
 
 ## 🔄 Workflow
 
 ```mermaid
 flowchart LR
-    A[Crawl Rever.vn] --> B[EDA & cleaning]
-    B --> C[Feature engineering<br/>log-price, encoding, scaling]
-    C --> D[Train/test split 80/20]
-    D --> E[Linear Regression<br/>baseline]
-    D --> F[XGBoost Regressor<br/>+ tuning]
-    E --> G[Evaluation<br/>MAE · RMSE · R² · MAPE]
-    F --> G
+    A[Crawl Rever.vn<br/>9,482 listings] --> B[Cleaning<br/>parse price text, drop missing]
+    B --> C[Encoding<br/>label-encode street · ward · district]
+    C --> D[Outlier removal<br/>IQR on price]
+    D --> E[Train/test 80/20]
+    E --> F[XGBoost Regressor]
+    E --> G[Linear Regression<br/>baseline]
+    F --> H[MAE · RMSE · R² · MAPE<br/>+ 5-fold CV]
+    G --> H
 ```
+
+**Processing steps**
+1. **Price cleaning:** listing prices are free text (for example "12.5 tỷ", "tỷVND", discount tags), so they are parsed into numbers in billion VND.
+2. **Missing values:** rows missing price, area, bedrooms, bathrooms or price per m² are dropped.
+3. **Column cleanup:** removed direction, description, listing code and update date.
+4. **Encoding:** label encoding for street, ward and district (the tree model does not need one-hot).
+5. **Outlier removal:** IQR rule on price, keeping 1.5 × IQR around the quartiles.
+
+**XGBoost configuration:** 500 trees, learning rate 0.05, max depth 6, min child weight 5, gamma 0.1, subsample 0.8, colsample 0.8, L1 0.1, L2 1.0.
 
 ## 📁 Project Structure
 
 ```
-House_Price/
 ├── data/
 │   ├── house_prices.csv                       # raw crawled listings
-│   ├── data-train-ml_house_prices.csv         # cleaned training set (XGBoost)
-│   └── data-train-ml_house_prices-linear.csv  # training set for the linear baseline
+│   ├── data-train-ml_house_prices.csv         # cleaned & encoded (XGBoost)
+│   └── data-train-ml_house_prices-linear.csv  # cleaned (linear baseline)
 ├── notebooks/
-│   ├── analysis.ipynb                         # EDA & visualization
-│   ├── processor.ipynb                        # cleaning & feature engineering
-│   └── XGBoost.ipynb                          # model training & evaluation
+│   ├── analysis.ipynb                         # exploratory data analysis
+│   ├── processor.ipynb                        # cleaning & encoding
+│   └── XGBoost.ipynb                          # training & evaluation
 └── requirements.txt
 ```
 
 ## 🚀 Quick Start
 
 ```bash
-git clone https://github.com/LinhNhat07/House_Price.git
-cd House_Price
 pip install -r requirements.txt
 jupyter notebook notebooks/
 ```
 
-> The notebooks were originally run locally and on Google Colab. Update the CSV paths at the top of each notebook to point to the `data/` folder.
+> The notebooks were run locally and on Google Colab. Update the CSV paths at the top of each notebook to point to the `data/` folder.
 
 ## 🔭 Future Work
 
-- Geospatial features (distance to metro, schools, city center)
-- Time-series analysis across multiple crawl dates
-- Additional sources (Batdongsan, official land price tables)
+- Log-transform the price and add hyperparameter search (Optuna / GridSearch)
+- Geospatial features (distance to the city center, metro and schools)
+- Text features from listing descriptions (legal status, furniture, frontage)
+- More sources and multiple crawl dates for time-series trends
 - Serve the model through a FastAPI / Streamlit app
 
 ## 👤 Author
